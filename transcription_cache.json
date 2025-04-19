@@ -1,0 +1,100 @@
+{
+    "turn the lights pink ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "pink"
+        }
+    },
+    "turn the lights brown ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "brown"
+        }
+    },
+    "turn the lights ruby red ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "ruby red"
+        }
+    },
+    "dim the lights ": {
+        "command": "light",
+        "parameters": {
+            "action": "on",
+            "brightness": "50"
+        }
+    },
+    "turn the lights brightness to one hundred percent ": {
+        "command": "light",
+        "parameters": {
+            "action": "on",
+            "brightness": "100"
+        }
+    },
+    "turn the light sienna ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "sienna"
+        }
+    },
+    "turn the lights read ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "red"
+        }
+    },
+    "yes turn the lights pink ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "pink"
+        }
+    },
+    "yeah turn the lights blue ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "blue"
+        }
+    },
+    "yeah turn the lights purple ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "purple"
+        }
+    },
+    "yeah turn the lights magenta ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "magenta"
+        }
+    },
+    "urine the lights pink ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "pink"
+        }
+    },
+    "yeah turn the lights indigo ": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "indigo"
+        }
+    },
+    "yeah turn the lights the color of my love for jacob": {
+        "command": "light",
+        "parameters": {
+            "action": "color",
+            "color": "the color of my love for jacob"
+        }
+    }
+}

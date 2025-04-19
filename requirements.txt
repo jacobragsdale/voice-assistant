@@ -1,7 +1,7 @@
-pyaudio==0.2.13
-openai==0.28.1
-python-dotenv==1.0.0
-SpeechRecognition==3.10.0
-vosk==0.3.45
-python-kasa==0.10.2
-asyncio-extras==1.3.2 
+pyaudio
+openai
+python-dotenv
+SpeechRecognition
+vosk
+python-kasa
+asyncio-extras

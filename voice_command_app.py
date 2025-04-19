@@ -5,12 +5,15 @@ from download_model import download_model
 from commands.registry import create_command_registry
 from listener import VoiceListener
 from command_processor import CommandProcessor
+from tts import VoiceAssistant
 
 # Configuration
 WAKE_WORD = "computer"  # The keyword to trigger recording
 COMMAND_TIMEOUT = 5  # Recording duration for commands in seconds
 SAMPLE_RATE = 16000  # Audio sample rate
 BUFFER_SIZE = 1024  # Buffer size for audio stream
+
+assistant = VoiceAssistant()
 
 def main():
     """Main application entry point."""
@@ -20,14 +23,6 @@ def main():
     # Initialize Vosk model
     model_path = download_model()
     print(f"Using Vosk model at: {model_path}")
-    
-    # Check for OpenAI API key for command interpretation
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("Error: OPENAI_API_KEY environment variable not set.")
-        print("Please check your .env file and make sure it contains:")
-        print("OPENAI_API_KEY=your-api-key")
-        sys.exit(1)
     
     # Set up command registry with all available commands
     command_registry = create_command_registry()
@@ -55,11 +50,14 @@ def main():
     print(f"\nVoice Command App - Say '{WAKE_WORD}' to activate, then speak a command")
     print("Press Ctrl+C to exit")
     print("-" * 50)
-    
+    assistant.speak("Hey! I'm you're helpful assistant. Looks like every things up and running."
+                    "Just say, computer, any time you need me.", threaded=False)
+
     try:
         while True:
             # Listen for wake word
             if listener.listen_for_wake_word():
+                assistant.speak("Ya")
                 # Wake word detected, listen for command
                 print("Listening for command...")
                 audio_file = listener.record_audio(COMMAND_TIMEOUT)
@@ -73,7 +71,7 @@ def main():
                     
                     # Interpret command with OpenAI
                     print("Interpreting command...")
-                    command_data = command_processor.interpret_command(transcription, api_key)
+                    command_data = command_processor.interpret_command(transcription)
                     
                     if command_data["command"] != "unknown":
                         # Execute the command
@@ -82,11 +80,10 @@ def main():
                             command_data.get("parameters", {})
                         )
                     else:
-                        print("Sorry, I didn't understand that command.")
+                        assistant.speak("Sorry, I didn't understand that command.")
                 else:
                     print("Failed to transcribe command.")
-                
-                # Clean up temporary file
+
                 listener.cleanup_audio_file(audio_file)
                 
                 print("\n" + "-"*50 + "\n")
@@ -94,5 +91,6 @@ def main():
     except KeyboardInterrupt:
         print("\nExiting...")
 
+
 if __name__ == "__main__":
-    main() 
+    main()
