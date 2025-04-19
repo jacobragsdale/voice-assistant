@@ -96,5 +96,35 @@
             "action": "color",
             "color": "the color of my love for jacob"
         }
+    },
+    "turn on party mode": {
+        "command": "light",
+        "parameters": {
+            "action": "party"
+        }
+    },
+    "activate party mode": {
+        "command": "light",
+        "parameters": {
+            "action": "party"
+        }
+    },
+    "start party mode": {
+        "command": "light",
+        "parameters": {
+            "action": "party"
+        }
+    },
+    "party mode": {
+        "command": "light",
+        "parameters": {
+            "action": "party"
+        }
+    },
+    "turn the lights party mode ": {
+        "command": "light",
+        "parameters": {
+            "action": "party"
+        }
     }
 }

@@ -83,6 +83,8 @@ class CommandProcessor:
             self.assistant.speak("Sorry, I didn't understand that command.")
         elif command["command"] == "light" and command["parameters"].get("action") == "color":
             self.assistant.speak(f"Sure thing! Turning the lights {command['parameters'].get('color')} now.")
+        elif command["command"] == "light" and command["parameters"].get("action") == "party":
+            self.assistant.speak("Let's get this party started!")
 
     def _balance_examples(self, examples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Balance examples to have good command coverage"""

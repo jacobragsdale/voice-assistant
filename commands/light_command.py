@@ -2,6 +2,9 @@ import asyncio
 import json
 import openai
 import os
+import random
+import threading
+import time
 from typing import Dict, Any, Optional, List, Tuple
 from commands.base_command import BaseCommand
 from kasa import SmartBulb, SmartDevice, Discover
@@ -15,7 +18,7 @@ class LightCommand(BaseCommand):
             name="light",
             description="Control Kasa smart lights",
             parameters={
-                "action": {"type": "string", "description": "Action to perform (on, off, toggle, status, color)", "default": "status"},
+                "action": {"type": "string", "description": "Action to perform (on, off, toggle, status, color, party)", "default": "status"},
                 "device": {"type": "string", "description": "Device name or IP address", "default": "all"},
                 "brightness": {"type": "string", "description": "Brightness level (1-100)", "default": "100"},
                 "color": {"type": "string", "description": "Color name or description (e.g., red, blue, warm white)", "default": ""}
@@ -27,7 +30,9 @@ class LightCommand(BaseCommand):
                 {"query": "toggle the bedroom light", "parameters": {"action": "toggle", "device": "bedroom"}},
                 {"query": "are the lights on", "parameters": {"action": "status"}},
                 {"query": "change the lights to blue", "parameters": {"action": "color", "color": "blue"}},
-                {"query": "set living room light to warm white", "parameters": {"action": "color", "device": "living room", "color": "warm white"}}
+                {"query": "set living room light to warm white", "parameters": {"action": "color", "device": "living room", "color": "warm white"}},
+                {"query": "turn on party mode", "parameters": {"action": "party"}},
+                {"query": "start party mode", "parameters": {"action": "party"}}
             ]
         )
         self.devices: Dict[str, SmartDevice] = {}
@@ -43,6 +48,8 @@ class LightCommand(BaseCommand):
         self.color_cache: Dict[str, Tuple[int, int, int]] = {}
         self._load_color_cache()
         self._loop = None
+        self.party_thread = None
+        self.party_active = False
 
     def execute(self, parameters: Optional[Dict[str, Any]] = None) -> None:
         parameters = parameters or {}
@@ -54,7 +61,11 @@ class LightCommand(BaseCommand):
         if action == "color" and color_description:
             color_hsv = self._convert_color_description_to_hsv(color_description)
             action = "color" if color_hsv else "on"
-        self._run_command_in_loop(action, device_name, brightness_int, color_hsv)
+        
+        if action == "party":
+            self._handle_party_mode(device_name, brightness_int)
+        else:
+            self._run_command_in_loop(action, device_name, brightness_int, color_hsv)
 
     def _sanitize_brightness(self, brightness: str) -> int:
         try:
@@ -246,3 +257,59 @@ class LightCommand(BaseCommand):
                 print(f"Connected to {getattr(device, 'alias', 'Unknown device')} ({ip})")
             except Exception as e:
                 print(f"Error connecting to cached device at {ip}: {e}")
+
+    def _handle_party_mode(self, device_name: str, brightness: int) -> None:
+        """Handle the party mode command - start or stop party mode"""
+        assistant = VoiceAssistant()
+        
+        if self.party_active:
+            self.party_active = False
+            if self.party_thread and self.party_thread.is_alive():
+                self.party_thread.join(timeout=1.0)
+            assistant.speak("Party mode stopped")
+            print("Party mode stopped")
+        else:
+            self.party_active = True
+            self.party_thread = threading.Thread(
+                target=self._party_mode_thread,
+                args=(device_name, brightness),
+                daemon=True
+            )
+            self.party_thread.start()
+            assistant.speak("Party mode activated!")
+            print("Party mode activated!")
+
+    def _party_mode_thread(self, device_name: str, brightness: int) -> None:
+        """Thread function for continuously changing light colors"""
+        try:
+            if self._loop is None or self._loop.is_closed():
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+            
+            while self.party_active:
+                # Get random color from color cache
+                if not self.color_cache:
+                    print("No colors available in color cache")
+                    self.party_active = False
+                    break
+                    
+                random_color = random.choice(list(self.color_cache.keys()))
+                color_hsv = self.color_cache.get(random_color)
+                
+                if color_hsv:
+                    print(f"Party mode: Changing to {random_color}")
+                    self._loop.run_until_complete(
+                        self._execute_light_command("color", device_name, brightness, tuple(color_hsv))
+                    )
+                
+                # Wait before next color change
+                time.sleep(2.0)
+                
+        except Exception as e:
+            print(f"Error in party mode: {e}")
+            self.party_active = False
+        finally:
+            if self._loop and not self._loop.is_closed():
+                self._loop.close()
+            self._loop = None
+            self.party_active = False
