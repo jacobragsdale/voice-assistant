@@ -155,33 +155,36 @@ class VoiceListener:
         """
         try:
             model = Model(self.model_path)
-            wf = wave.open(audio_file_path, "rb")
-            
-            # Check if the audio format matches what Vosk expects
-            if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
-                print("Audio file must be WAV format mono PCM.")
-                return None
-            
-            # Create recognizer
-            rec = KaldiRecognizer(model, wf.getframerate())
-            rec.SetWords(True)
-            
-            # Process audio in chunks
-            results = []
-            while True:
-                data = wf.readframes(4000)
-                if len(data) == 0:
-                    break
-                if rec.AcceptWaveform(data):
-                    part_result = json.loads(rec.Result())
-                    results.append(part_result.get('text', ''))
-            
-            # Get final result
-            part_result = json.loads(rec.FinalResult())
-            results.append(part_result.get('text', ''))
-            
-            # Join all results
-            return ' '.join(results)
+            with wave.open(audio_file_path, "rb") as wf:
+                # Check if the audio format matches what Vosk expects
+                if (
+                    wf.getnchannels() != 1
+                    or wf.getsampwidth() != 2
+                    or wf.getcomptype() != "NONE"
+                ):
+                    print("Audio file must be WAV format mono PCM.")
+                    return None
+
+                # Create recognizer
+                rec = KaldiRecognizer(model, wf.getframerate())
+                rec.SetWords(True)
+
+                # Process audio in chunks
+                results = []
+                while True:
+                    data = wf.readframes(4000)
+                    if len(data) == 0:
+                        break
+                    if rec.AcceptWaveform(data):
+                        part_result = json.loads(rec.Result())
+                        results.append(part_result.get("text", ""))
+
+                # Get final result
+                part_result = json.loads(rec.FinalResult())
+                results.append(part_result.get("text", ""))
+
+                # Join all results
+                return " ".join(results)
             
         except Exception as e:
             print(f"Error during Vosk transcription: {e}")
