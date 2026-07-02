@@ -1,5 +1,3 @@
-import os
-import sys
 from dotenv import load_dotenv
 from download_model import download_model
 from commands.registry import create_command_registry
@@ -9,7 +7,6 @@ from tts import VoiceAssistant
 
 # Configuration
 WAKE_WORD = "computer"  # The keyword to trigger recording
-COMMAND_TIMEOUT = 5  # Recording duration for commands in seconds
 SAMPLE_RATE = 16000  # Audio sample rate
 BUFFER_SIZE = 1024  # Buffer size for audio stream
 
@@ -32,7 +29,10 @@ def main():
         model_path=model_path,
         wake_word=WAKE_WORD,
         sample_rate=SAMPLE_RATE,
-        buffer_size=BUFFER_SIZE
+        buffer_size=BUFFER_SIZE,
+        vad_aggressiveness=2,
+        silence_duration=1.5,
+        max_record_seconds=15
     )
     
     # Initialize command processor
@@ -50,8 +50,8 @@ def main():
     print(f"\nVoice Command App - Say '{WAKE_WORD}' to activate, then speak a command")
     print("Press Ctrl+C to exit")
     print("-" * 50)
-    assistant.speak("Hey! I'm you're helpful assistant. Looks like every things up and running."
-                    "Just say, computer, any time you need me.", threaded=False)
+    # assistant.speak("Hey! I'm your helpful assistant. Looks like every thing is up and running."
+    #                 "Just say, computer, any time you need me.", threaded=False)
 
     try:
         while True:
@@ -60,9 +60,10 @@ def main():
                 assistant.speak("Ya")
                 # Wake word detected, listen for command
                 print("Listening for command...")
-                audio_file = listener.record_audio(COMMAND_TIMEOUT)
-                
-                # Transcribe command with Vosk
+                audio_file = listener.record_audio()
+                audio_file = listener.reduce_noise(audio_file)
+
+                # Transcribe command with Whisper
                 print("Transcribing...")
                 transcription = listener.transcribe_audio(audio_file)
                 

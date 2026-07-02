@@ -126,5 +126,23 @@
         "parameters": {
             "action": "party"
         }
+    },
+    "turn the light party mode ": {
+        "command": "light",
+        "parameters": {
+            "action": "party"
+        }
+    },
+    "young a light party mode ": {
+        "command": "light",
+        "parameters": {
+            "action": "party"
+        }
+    },
+    "two lights party mode ": {
+        "command": "light",
+        "parameters": {
+            "action": "party",
+        }
     }
 }

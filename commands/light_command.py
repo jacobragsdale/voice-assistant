@@ -1,15 +1,15 @@
 import asyncio
 import json
-import openai
 import os
 import random
 import threading
-import time
-from typing import Dict, Any, Optional, List, Tuple
-from commands.base_command import BaseCommand
-from kasa import SmartBulb, SmartDevice, Discover
+from typing import Dict, Any, Optional, Tuple
 
-from tts import VoiceAssistant
+from openai import OpenAI
+from kasa import Discover
+from kasa.iot import IotBulb
+
+from commands.base_command import BaseCommand
 
 
 class LightCommand(BaseCommand):
@@ -25,7 +25,6 @@ class LightCommand(BaseCommand):
             },
             example_queries=[
                 {"query": "turn on the lights", "parameters": {"action": "on"}},
-                {"query": "turn off the living room light", "parameters": {"action": "off", "device": "living room"}},
                 {"query": "set brightness to 50 percent", "parameters": {"action": "on", "brightness": "50"}},
                 {"query": "toggle the bedroom light", "parameters": {"action": "toggle", "device": "bedroom"}},
                 {"query": "are the lights on", "parameters": {"action": "status"}},
@@ -35,12 +34,7 @@ class LightCommand(BaseCommand):
                 {"query": "start party mode", "parameters": {"action": "party"}}
             ]
         )
-        self.devices: Dict[str, SmartDevice] = {}
-        self.device_aliases: Dict[str, str] = {
-            "living room": "192.168.1.100",
-            "bedroom": "192.168.1.101",
-            "kitchen": "192.168.1.102"
-        }
+        self.devices: Dict[str, IotBulb] = {}
         self.devices_cache_file = "devices_cache.json"
         self.device_data_cache = {}
         self._load_devices_from_cache()
@@ -50,11 +44,13 @@ class LightCommand(BaseCommand):
         self._loop = None
         self.party_thread = None
         self.party_active = False
+        party_colors_path = os.path.join(os.path.dirname(__file__), 'party_colors.json')
+        with open(party_colors_path, "r") as f:
+            self.party_colors = json.load(f)
 
-    def execute(self, parameters: Optional[Dict[str, Any]] = None) -> None:
+    async def execute(self, parameters: Optional[Dict[str, Any]] = None) -> None:
         parameters = parameters or {}
         action = parameters.get("action", "status").lower()
-        device_name = parameters.get("device", "all").lower()
         brightness_int = self._sanitize_brightness(parameters.get("brightness", "100"))
         color_description = parameters.get("color", "")
         color_hsv = None
@@ -63,9 +59,9 @@ class LightCommand(BaseCommand):
             action = "color" if color_hsv else "on"
         
         if action == "party":
-            self._handle_party_mode(device_name, brightness_int)
+            await self._handle_party_mode(brightness_int)
         else:
-            self._run_command_in_loop(action, device_name, brightness_int, color_hsv)
+            await self._run_command_in_loop(action, brightness_int, color_hsv)
 
     def _sanitize_brightness(self, brightness: str) -> int:
         try:
@@ -74,21 +70,16 @@ class LightCommand(BaseCommand):
         except Exception:
             return 100
 
-    def _run_command_in_loop(self, action: str, device_name: str, brightness: int, color_hsv: Optional[Tuple[int, int, int]] = None) -> None:
+    async def _run_command_in_loop(self, action: str, brightness: int, color_hsv: Optional[Tuple[int, int, int]] = None) -> None:
         try:
-            if self._loop is None or self._loop.is_closed():
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._execute_light_command(action, device_name, brightness, color_hsv))
+            await self._execute_light_command(action, color_hsv, brightness)
         except Exception as e:
             print(f"Error executing command: {e}")
-            if self._loop and not self._loop.is_closed():
-                self._loop.close()
-            self._loop = None
 
     def _load_devices_from_cache(self) -> None:
         try:
             if os.path.exists(self.devices_cache_file):
+                # Add a simple button
                 with open(self.devices_cache_file, "r") as f:
                     self.device_data_cache = json.load(f)
                 print(f"Loaded {len(self.device_data_cache)} devices from cache.")
@@ -104,7 +95,7 @@ class LightCommand(BaseCommand):
                     "ip": ip,
                     "alias": getattr(device, "alias", "Unknown Device"),
                     "model": getattr(device, "model", "Unknown Model"),
-                    "device_type": "bulb" if isinstance(device, SmartBulb) else "other"
+                    "device_type": "bulb" if isinstance(device, IotBulb) else "other"
                 }
                 serialized_data[ip] = device_info
             with open(self.devices_cache_file, "w") as f:
@@ -143,12 +134,12 @@ class LightCommand(BaseCommand):
             if not api_key:
                 print("OpenAI API key not found. Cannot interpret complex colors.")
                 return None
-            openai.api_key = api_key
+            client = OpenAI(api_key=api_key)
             system_prompt = (
                 "You are a color interpretation assistant. Your task is to convert natural language color descriptions into HSV color values. "
                 "Respond with ONLY a valid JSON object containing the HSV values in this format: {\"h\": 0, \"s\": 100, \"v\": 100}"
             )
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -169,54 +160,41 @@ class LightCommand(BaseCommand):
             print(f"Error converting color: {e}")
             return None
 
-    async def _execute_light_command(self, action: str, device_name: str, brightness: int, color_hsv: Optional[Tuple[int, int, int]] = None) -> None:
-
-        if not self.devices:
-            if self.device_data_cache:
-                print("Using cached device information...")
-                await self._connect_to_cached_devices()
-            else:
-                print("Discovering devices...")
-                try:
-                    discovered_devices = await Discover.discover()
-                    if not discovered_devices:
-                        print("No Kasa devices found on the network.")
-                        return
-                    self.devices = discovered_devices
-                    print(f"Found {len(self.devices)} device(s)")
-                    self._save_devices_to_cache()
-                except Exception as e:
-                    print(f"Error discovering devices: {e}")
-                    return
-        target_devices: List[SmartDevice] = []
-        if device_name == "all":
-            target_devices = list(self.devices.values())
+    async def set_devices(self):
+        if self.device_data_cache:
+            print("Using cached device information...")
+            tasks = [
+                self._connect_to_cached_devices(ip)
+                for ip, info in self.device_data_cache.items()
+            ]
+            await asyncio.gather(*tasks)
         else:
-            device_ip = self.device_aliases.get(device_name)
-            if device_ip and device_ip in self.devices:
-                target_devices = [self.devices[device_ip]]
-            else:
-                for dev in self.devices.values():
-                    try:
-                        await dev.update()
-                        if hasattr(dev, "alias") and device_name in dev.alias.lower():
-                            target_devices.append(dev)
-                    except Exception as e:
-                        print(f"Error updating device info: {e}")
-                        continue
-        if not target_devices:
-            print(f"No devices found matching '{device_name}'")
-            return
+            print("Discovering devices...")
+            try:
+                discovered_devices = await Discover.discover()
+                if not discovered_devices:
+                    print("No Kasa devices found on the network.")
+                    return
+                self.devices = discovered_devices
+                print(f"Found {len(self.devices)} device(s)")
+                self._save_devices_to_cache()
+            except Exception as e:
+                print(f"Error discovering devices: {e}")
+                return
 
-        for dev in target_devices:
+    async def _execute_light_command(self, action: str, color_hsv, brightness: int) -> None:
+        if not self.devices:
+            await self.set_devices()
+
+        async def run_command(dev):
             try:
                 await dev.update()
                 dev_alias = getattr(dev, "alias", "Unknown device")
                 if action == "on":
-                    if isinstance(dev, SmartBulb):
+                    if isinstance(dev, IotBulb):
                         await dev.set_brightness(brightness)
                     await dev.turn_on()
-                    print(f"Turned on {dev_alias}" + (f" at {brightness}% brightness" if isinstance(dev, SmartBulb) else ""))
+                    print(f"Turned on {dev_alias}" + (f" at {brightness}% brightness" if isinstance(dev, IotBulb) else ""))
                 elif action == "off":
                     await dev.turn_off()
                     print(f"Turned off {dev_alias}")
@@ -225,12 +203,12 @@ class LightCommand(BaseCommand):
                         await dev.turn_off()
                         print(f"Toggled {dev_alias} off")
                     else:
-                        if isinstance(dev, SmartBulb):
+                        if isinstance(dev, IotBulb):
                             await dev.set_brightness(brightness)
                         await dev.turn_on()
-                        print(f"Toggled {dev_alias} on" + (f" at {brightness}% brightness" if isinstance(dev, SmartBulb) else ""))
+                        print(f"Toggled {dev_alias} on" + (f" at {brightness}% brightness" if isinstance(dev, IotBulb) else ""))
                 elif action == "color" and color_hsv is not None:
-                    if isinstance(dev, SmartBulb) and hasattr(dev, "set_hsv"):
+                    if isinstance(dev, IotBulb) and hasattr(dev, "set_hsv"):
                         await dev.set_hsv(*color_hsv)
                         await dev.set_brightness(brightness)
                         await dev.turn_on()
@@ -246,70 +224,59 @@ class LightCommand(BaseCommand):
                     print(f"Unknown action: {action}")
             except Exception as e:
                 print(f"Error controlling {getattr(dev, 'alias', 'Unknown device')}: {e}")
-                continue
 
-    async def _connect_to_cached_devices(self) -> None:
-        for ip, info in self.device_data_cache.items():
-            try:
-                device = SmartBulb(ip) if info.get("device_type") == "bulb" else SmartDevice(ip)
-                await device.update()
-                self.devices[ip] = device
-                print(f"Connected to {getattr(device, 'alias', 'Unknown device')} ({ip})")
-            except Exception as e:
-                print(f"Error connecting to cached device at {ip}: {e}")
+        tasks = [run_command(dev) for dev in list(self.devices.values())]
+        await asyncio.gather(*tasks)
 
-    def _handle_party_mode(self, device_name: str, brightness: int) -> None:
+    async def _connect_to_cached_devices(self, ip) -> None:
+        try:
+            device = IotBulb(ip)
+            await device.update()
+            self.devices[ip] = device
+            print(f"Connected to {getattr(device, 'alias', 'Unknown device')} ({ip})")
+        except Exception as e:
+            print(f"Error connecting to cached device at {ip}: {e}")
+
+    async def _handle_party_mode(self, brightness: int) -> None:
         """Handle the party mode command - start or stop party mode"""
-        assistant = VoiceAssistant()
-        
         if self.party_active:
             self.party_active = False
-            if self.party_thread and self.party_thread.is_alive():
-                self.party_thread.join(timeout=1.0)
-            assistant.speak("Party mode stopped")
             print("Party mode stopped")
         else:
             self.party_active = True
-            self.party_thread = threading.Thread(
-                target=self._party_mode_thread,
-                args=(device_name, brightness),
-                daemon=True
-            )
-            self.party_thread.start()
-            assistant.speak("Party mode activated!")
-            print("Party mode activated!")
+            await self._party_mode_thread(brightness)
 
-    def _party_mode_thread(self, device_name: str, brightness: int) -> None:
+    async def _party_mode_thread(self, brightness: int) -> None:
         """Thread function for continuously changing light colors"""
         try:
-            if self._loop is None or self._loop.is_closed():
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-            
             while self.party_active:
                 # Get random color from color cache
-                if not self.color_cache:
+                if not self.party_colors:
                     print("No colors available in color cache")
                     self.party_active = False
                     break
-                    
-                random_color = random.choice(list(self.color_cache.keys()))
-                color_hsv = self.color_cache.get(random_color)
+
+                current_colors = list(self.party_colors.keys())
+                random.shuffle(current_colors)
+                random_color = current_colors[0]
+                color_hsv = self.party_colors.get(random_color)
                 
                 if color_hsv:
                     print(f"Party mode: Changing to {random_color}")
-                    self._loop.run_until_complete(
-                        self._execute_light_command("color", device_name, brightness, tuple(color_hsv))
-                    )
-                
-                # Wait before next color change
-                time.sleep(2.0)
+                    await self._execute_light_command("color", color_hsv, brightness)
+                await asyncio.sleep(5.0)
                 
         except Exception as e:
             print(f"Error in party mode: {e}")
             self.party_active = False
-        finally:
-            if self._loop and not self._loop.is_closed():
-                self._loop.close()
-            self._loop = None
-            self.party_active = False
+
+
+if __name__ == '__main__':
+    parameters = {'action': 'party'}
+    light_command = LightCommand()
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(light_command.execute(parameters))
+        loop.run_forever()
+    except KeyboardInterrupt:
+        loop.close()

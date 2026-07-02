@@ -1,19 +1,18 @@
 import json
-import os
 from typing import Dict, List, Any, Set
 
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 from commands.registry import CommandRegistry
 from tts import VoiceAssistant
 
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 class CommandProcessor:
     def __init__(self, command_registry: CommandRegistry):
         self.command_registry = command_registry
+        self.openai_client = OpenAI()
 
         # Load cached transcriptions
         self.transcription_cache_file = "transcription_cache.json"
@@ -50,7 +49,7 @@ class CommandProcessor:
             system_prompt = self._create_system_prompt(command_schema, examples_formatted)
 
             # Call OpenAI API
-            response = openai.ChatCompletion.create(
+            response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
